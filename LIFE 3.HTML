@@ -1,0 +1,317 @@
+<body bgcolor="black" style="margin:0"><canvas id="canvas"></canvas></body>
+<script src="js/data.js"></script>
+<script src="js/commons.js"></script>
+<script>
+
+const 
+	canvas = document.getElementById('canvas'),
+	ctx = canvas.getContext('2d'),
+	W= window.innerWidth,
+	H= window.innerHeight,
+	
+	tileW=50, tileH=100, tileS=8,//12.4,
+	
+	absoluteZero = -273.15,
+	startingTemp = 10 - absoluteZero,
+	
+	indexGroundWater=0, 
+	indexTerrain=1, 
+	indexWater=2, 
+	indexIce=3,
+	indexAir=4;
+
+var season=0, //global season control
+	ds=0, //direct sunlight
+	t, lt=0, te=0, tc=0; //for SPS/FPS calculation
+
+canvas.width=W; canvas.height=H;
+
+var img_grey=new Image();
+img_grey.src="img/tile.png";
+var img_green=new Image();
+img_green.src="img/tile_green.png";
+var img_pink=new Image();
+img_pink.src="img/tile_pink.png";
+var img_white=new Image();
+img_white.src="img/tile_white.png";
+
+function Tile(xx,yy){
+	this.r=tileS;
+	this.xx=xx;
+	this.yy=yy;
+	this.x=this.xx*this.r*3 + (this.yy % 2)*this.r*1.5;
+	this.y=this.yy*this.r*Math.sqrt(3)/2;
+	this.visible=true;
+	this.value=0;
+	this.range=[-1,1];
+	this.temp=startingTemp;
+	this.coolingRate=0.999;
+	this.heatingRate=300;
+};
+Tile.prototype.draw=function(){
+	ctx.save();
+	var alpha=(this.value-this.range[0])/(this.range[1]-this.range[0]);
+	if (alpha<0) alpha=0;
+	if (alpha>1) alpha=1;
+	ctx.globalAlpha=alpha;
+	ctx.drawImage(this.img,this.x-this.r,this.y-this.r,this.r*2, this.r*2);
+	ctx.restore();
+};
+Tile.prototype.update=function(){
+	//cooling
+	this.thermCap=this.thermCap*this.coolingRate;		
+	//heating
+	this.thermCAP+=this.headtingRate*Math.sin(Math.PI*(this.yy-ds)/(tileH-1));
+	this.updateTemp();
+};
+
+function Terrain(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Terrain";
+	this.range=[-11000,9000];
+	this.value=earth[yy][xx];
+	this.img=img_grey;
+	this.thermCap=startingTemp * 10000000;
+	this.temp=this.thermCap/10000000;
+};
+Terrain.prototype=new Tile();
+Terrain.prototype.updateTemp=function(){
+	this.temp=this.thermCap/10000000;
+};
+
+function Water(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Water";
+	this.range=[0,10000];
+	this.value=(this.xx==19 && this.yy==50) ? 10000000: 0;
+	this.img=img_green;
+	this.thermCap=startingTemp * 10000000*this.value/10;
+	this.temp=this.thermCap/(10000000*this.value/10);
+};
+Water.prototype=new Tile();
+Water.prototype.updateTemp=function(){
+	this.temp=this.thermCap/(10000000*this.value/10);
+};
+
+function Ice(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Ice";
+	this.range=[0,1000];
+	this.value=0;
+//	this.visible=false;
+	this.img=img_white;
+	this.thermCap=(startingTemp-20) * 10000000*this.value/10;
+	this.temp=this.thermCap/(10000000*this.value/10);
+};
+Ice.prototype=new Tile();
+Ice.prototype.updateTemp=function(){
+	this.temp=this.thermCap/(10000000*this.value/10);
+};
+
+function GroundWater(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="GroundWater";
+	this.range=[0,1000];
+	this.value=100;
+	this.visible=false;
+	this.thermCap=startingTemp * 10000000*this.value/10;
+	this.temp=this.thermCap/(10000000*this.value/10);	
+};
+GroundWater.prototype=new Tile();
+GroundWater.prototype.updateTemp=function(){
+	this.temp=this.thermCap/(10000000*this.value/10);
+};
+
+function Air(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Air";
+	this.range=[0,1000];
+	this.value=0;
+//	this.visible=false;
+	this.img=img_pink;
+	this.thermCap=startingTemp * 1000*this.value/10;
+	this.temp=this.thermCap/(1000*this.value/10);	
+};
+Air.prototype=new Tile();
+Air.prototype.updateTemp=function(){
+	this.temp=this.thermCap/(1000*this.value/10);	
+};
+
+function World(){
+	this.map=[];
+	for (var i=0; i<tileH; i++){
+		this.map[i]=[];
+		for (var j=0; j<tileW; j++){
+ 			this.map[i][j]=[];
+			this.map[i][j][0]=new GroundWater(j,i);
+			this.map[i][j][1]=new Terrain(j,i);
+			this.map[i][j][2]=new Water(j,i);
+			this.map[i][j][3]=new Ice(j,i);
+			this.map[i][j][4]=new Air(j,i);
+			
+			//adjust temp according to terrain altitude
+			if (this.map[i][j][indexTerrain].value>0)
+				this.map[i][j][indexAir].coolingRate=this.map[i][j][indexAir].coolingRate
+					*this.map[i][j][indexTerrain].value/10000;
+		};
+	};
+};
+World.prototype.getSurrounding=function(xx,yy){
+	var r=[];
+	if (yy-1>0) r.push(this.map[yy-2][xx]);
+	if (yy+2<tileH) r.push(this.map[yy+2][xx]);
+
+	if (yy>0) r.push(this.map[yy-1][xx]);
+	if (xx>0 && yy>0) r.push(this.map[yy-1][xx-1]);
+
+	if (yy+1<tileH) r.push(this.map[yy+1][xx]);
+	if (xx>0 && yy+1<tileH) r.push(this.map[yy+1][xx-1]);
+	return r;
+};
+World.prototype.clear=function(A, B){
+	//water spreading
+	var sl=(A[indexTerrain].value+A[indexWater].value),
+		tl=(B[indexTerrain].value+B[indexWater].value),
+		gap=sl-tl;
+	if (gap>0 && A[indexWater].value>0) {
+		if (A[indexWater].value>gap/2){
+			A[indexWater].value-=gap/2;
+			B[indexWater].value+=gap/2;
+		} else {
+			B[indexWater].value+=A[indexWater].value;
+			A[indexWater].value=0;						
+		};
+	};
+	if (gap<0 && B[indexWater].value>0) {
+		if (B[indexWater].value>(-gap/2)){
+			B[indexWater].value+=gap/2;
+			A[indexWater].value-=gap/2;
+		} else {
+			A[indexWater].value+=B[indexWater].value;						
+			B[indexWater].value=0;
+		};
+	};
+					
+	//cloud spreading
+	var sl=A[indexTerrain].value,
+		tl=B[indexTerrain].value,
+		gap=tl-sl, cloudspeed=10, waterThermalCap=0.01;
+	if (gap>0 && A[indexCloud].value>0) {
+		if (A[indexCloud].value>cloudspeed){
+			B[indexCloud].value+=cloudspeed;
+			A[indexCloud].value-=cloudspeed;
+		} else {
+			B[indexCloud].value+=A[indexCloud].value;
+			A[indexCloud].value=0;
+		}
+	};
+	if (gap<0 && B[indexCloud].value>0) {
+		if (B[indexCloud].value>cloudspeed){
+			A[indexCloud].value+=cloudspeed;
+			B[indexCloud].value-=cloudspeed;
+		} else {
+			A[indexCloud].value+=B[indexCloud].value;
+			B[indexCloud].value=0;
+		};
+	};
+};
+World.prototype.draw=function(){
+	ctx.clearRect(0,0,W,H);
+	for (var l=0; l<this.map[0][0].length; l++)
+		for (var i=0; i<tileH; i++)
+			for (var j=0; j<tileW; j++)
+				if (this.map[i][j][l].visible)
+					this.map[i][j][l].draw();
+};
+World.prototype.update=function(){	
+	for (var i=0; i<tileH; i++)
+		for (var j=0; j<tileW; j++){
+
+			for (var l=0; l<this.map[0][0].length; l++){
+				this.map[i][j][l].update();
+			};
+												
+			//freezing
+			if (this.map[i][j][indexWater].value>0 && this.map[i][j][indexTemp].value<0) {
+				if (this.map[i][j][indexWater].value>10) {
+					this.map[i][j][indexIce].value+=10;
+					this.map[i][j][indexWater].value-=10;
+				} else {
+					this.map[i][j][indexIce].value+=this.map[i][j][indexWater].value;
+					this.map[i][j][indexWater].value=0;
+				}
+			};
+				
+			//melting
+			if (this.map[i][j][indexIce].value>0 && this.map[i][j][indexTemp].value>0) {
+				if (this.map[i][j][indexIce].value>10) {
+					this.map[i][j][indexWater].value+=10;
+					this.map[i][j][indexIce].value-=10;
+				} else {
+					this.map[i][j][indexWater].value+=this.map[i][j][indexIce].value;
+					this.map[i][j][indexIce].value=0;
+				}
+			};
+								
+			//vaporing
+			if (this.map[i][j][indexWater].value>0 && this.map[i][j][indexTemp].value>0) {
+				var amount=this.map[i][j][indexTemp].value*0.01;
+				if (this.map[i][j][indexWater].value>amount) {
+					this.map[i][j][indexCloud].value+=amount;
+					this.map[i][j][indexWater].value-=amount;
+				} else {
+					this.map[i][j][indexCloud].value+=this.map[i][j][indexWater].value;
+					this.map[i][j][indexWater].value=0;
+				}
+			};
+			
+			//precipitating
+			if (this.map[i][j][indexCloud].value>1000) {
+				this.map[i][j][indexWater].value+=this.map[i][j][indexCloud].value;
+				this.map[i][j][indexCloud].value=0;
+			};
+			
+			
+			var ss=this.getSurrounding(j,i);
+			for (var s in ss){
+				this.clear(ss[s], this.map[i][j]);
+			};
+	};		
+};
+
+function simulate(){
+	t=new Date();
+	ds=Math.round(Math.sin(season)*tileH*0.3);
+	world.update();
+	te+=t-lt;
+	tc++;
+	lt=t;
+	requestAnimationFrame(simulate);
+};
+
+function render(){
+	world.draw();
+	ctx.font="20px Verdana";
+	ctx.fillStyle="#ffffff";
+	ctx.fillText("SPS: "+Math.round(1000/(te/tc)),5,20);
+//	ctx.fillText("season: "+season,5,40);
+	tc=0; te=0;
+	season+=0.01;
+};
+
+var world=new World();
+world.draw();
+simulate();
+setInterval("render()", 33);
+
+</script>

@@ -1,0 +1,215 @@
+<body bgcolor="black" style="margin:0"><canvas id="canvas"></canvas></body>
+<script src="data.js"></script>
+<script src="commons.js"></script>
+<script>
+
+const canvas = document.getElementById('canvas');
+W= window.innerWidth; H= window.innerHeight;
+canvas.width=W; canvas.height=H;
+const ctx = canvas.getContext('2d');
+const indexGroundWater=0; indexTerrain=1; indexWater=2;
+
+var img_grey=new Image();
+img_grey.src="tile.png";
+var img_green=new Image();
+img_green.src="tile_green.png";
+var img_pink=new Image();
+img_pink.src="tile_pink.png";
+
+function Tile(xx,yy){
+	this.r=12.6;
+	this.xx=xx;
+	this.yy=yy;
+	this.x=this.xx*this.r*3 + (this.yy % 2)*this.r*1.5;
+	this.y=this.yy*this.r*Math.sqrt(3)/2;
+	this.c=[128,128,128];
+	this.visible=true;
+	this.value=0;
+	this.range=[-1,1];
+};
+Tile.prototype.draw=function(){
+	ctx.save();
+	ctx.globalAlpha=(this.value-this.range[0])/(this.range[1]-this.range[0])*1;
+	ctx.drawImage(this.img,this.x-this.r,this.y-this.r,this.r*2, this.r*2);
+	ctx.restore();
+};
+
+function Terrain(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Terrain";
+	this.range=[-11000,9000];
+	this.value=earth[yy][xx];
+	this.c=[170,160,120];
+	this.img=img_grey;
+};
+Terrain.prototype=new Tile();
+Terrain.prototype.update=function(){
+};
+
+function Water(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Water";
+	this.range=[0,10000];
+	this.value=(this.xx==19 && this.yy==0) ? 3000000: 0;
+	this.c=[20,90,255];
+	this.img=img_green;
+};
+Water.prototype=new Tile();
+Water.prototype.update=function(){
+};
+
+function Ice(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Ice";
+	this.range=[0,10000];
+	this.value=100;
+	this.c=[80,160,255];
+	this.visible=false;
+};
+Ice.prototype=new Tile();
+Ice.prototype.update=function(){
+};
+
+function GroundWater(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="GroundWater";
+	this.range=[0,1000];
+	this.value=100;
+	this.c=[0,220,0];
+	this.visible=false;
+};
+GroundWater.prototype=new Tile();
+GroundWater.prototype.update=function(){
+};
+
+function Cloud(xx,yy){
+	Tile.call(this,xx,yy);
+	this.xx=xx;
+	this.yy=yy;
+	this.name="Cloud";
+	this.range=[0,100];
+	this.value=0;
+	this.c=[220,220,255];
+	this.img=img_pink;
+};
+Cloud.prototype=new Tile();
+Cloud.prototype.update=function(){
+};
+
+function World(){
+	this.w=50;
+	this.h=100;
+	this.map=[];
+	for (var i=0; i<this.h; i++){
+		this.map[i]=[];
+		for (var j=0; j<this.w; j++){
+			this.map[i][j]=[];
+			this.map[i][j].push(new GroundWater(j,i));
+			this.map[i][j].push(new Terrain(j,i));
+			this.map[i][j].push(new Water(j,i));
+			this.map[i][j].push(new Ice(j,i));
+			this.map[i][j].push(new Cloud(j,i));
+		};
+	};
+};
+World.prototype.getSurrounding=function(xx,yy){
+	var r=[];
+	if (yy-1>0) r.push(this.map[yy-2][xx]);
+	if (yy+2<this.h) r.push(this.map[yy+2][xx]);
+
+	if (yy>0) r.push(this.map[yy-1][xx]);
+	if (xx>0 && yy>0) r.push(this.map[yy-1][xx-1]);
+
+	if (yy+1<this.h) r.push(this.map[yy+1][xx]);
+	if (xx>0 && yy+1<this.h) r.push(this.map[yy+1][xx-1]);
+	return r;
+};
+World.prototype.draw=function(){
+	ctx.clearRect(0,0,W,H);
+	for (var l=0; l<this.map[0][0].length; l++)
+		for (var i=0; i<this.h; i++)
+			for (var j=0; j<this.w; j++)
+				if (this.map[i][j][l].visible)
+					this.map[i][j][l].draw();
+};
+World.prototype.update=function(){
+		for (var i=0; i<this.h; i++)
+			for (var j=0; j<this.w; j++){
+
+				for (var l=0; l<this.map[0][0].length; l++){
+					this.map[i][j][l].update();
+				};
+			
+				//water spreading
+				var ss=this.getSurrounding(j,i);
+				for (var s in ss){
+					var sl=(ss[s][indexTerrain].value+ss[s][indexWater].value),
+						tl=(this.map[i][j][indexTerrain].value+this.map[i][j][indexWater].value),
+						gap=sl-tl;
+					if (gap>0 && ss[s][indexWater].value>0) {
+					 	if (ss[s][indexWater].value>gap/2){
+							ss[s][indexWater].value-=gap/2;
+							this.map[i][j][indexWater].value+=gap/2;
+						} else {
+							this.map[i][j][indexWater].value+=ss[s][indexWater].value;
+							ss[s][indexWater].value=0;						
+						};
+					};
+					if (gap<0 && this.map[i][j][indexWater].value>0) {
+					 	if (this.map[i][j][indexWater].value>(-gap/2)){
+							this.map[i][j][indexWater].value+=gap/2;
+							ss[s][indexWater].value-=gap/2;
+						} else {
+							ss[s][indexWater].value+=this.map[i][j][indexWater].value;						
+							this.map[i][j][indexWater].value=0;
+						};
+					};
+				};
+				
+				//vaporing
+// 				this.map[i][j].ground[1].value=this.map[i][j].ground[1].value* (1-this.air.temp/10000);
+// 				this.air.water+=this.map[i][j].ground[1].value* this.air.temp/10000;
+		};		
+		
+// 		if (this.air.water>60)
+// 		for (var i=0; i<this.h; i++)
+// 			for (var j=0; j<this.w; j++){
+// 					this.map[i][j].ground[1].value+=this.air.water/this.w/this.h;
+// 					this.air.water-=this.air.water/this.w/this.h;									
+// 				};	
+};
+
+var t, lt=0, te=0, tc=0;
+
+function simulate(){
+	t=new Date();
+	world.update();
+	te+=t-lt;
+	tc++;
+	lt=t;
+	requestAnimationFrame(simulate);
+};
+
+function render(){
+	world.draw();
+	ctx.font="20px Verdana";
+	ctx.fillStyle="#118811";
+	ctx.fillText("SPS: "+Math.round(1000/(te/tc)),5,20);
+	tc=0; te=0;
+};
+
+
+var world=new World();
+world.draw();
+simulate();
+setInterval("render()", 50);
+
+</script>

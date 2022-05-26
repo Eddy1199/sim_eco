@@ -1,0 +1,38 @@
+<script>
+function animal(){
+	this.name="animal";
+	this.parts=['head','arm','leg','body'];
+};
+animal.prototype.intro=function(){
+	console.log("this is "+this.name);
+	console.log(this.parts);
+};
+
+function cat(n){
+	animal.call(this);
+	this.name=n;
+};
+cat.prototype=new animal();
+//cat.prototype=animal.prototype;
+// cat.prototype.intro=functionz(){
+// 	console.log("my name is "+this.name);
+// 	console.log(this.parts);
+// };
+cat.prototype.cry=function(){
+	console.log("Meou!")
+};
+
+var a=new animal();
+a.parts.push("penis");
+a.intro();
+
+var c1=new cat("cat1");
+c1.parts.push("penis");
+c1.intro();
+c1.cry();
+
+var c2=new cat("cat2");
+c2.intro();
+c2.cry();
+
+</script>
